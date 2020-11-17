@@ -156,3 +156,8 @@ func (l *Lang) IsValidWord(s string) bool {
 	}
 	return true
 }
+
+func (l *Lang) LoadOrStore(s string) bool {
+	_, loaded := l.Dict.LoadOrStore(s, nil)
+	return loaded
+}

@@ -6,12 +6,15 @@ import (
 )
 
 func (l *Lang) Chunker(s string) []string {
-	chunks := []string{}
-	for _, chunk := range Splitter(s, 0) {
-		if _, loaded := l.Dict.LoadOrStore(chunk, nil); !loaded {
-			chunks = append(chunks, chunk)
+	/*
+		chunks := []string{}
+		for _, chunk := range Splitter(s, 0) {
+			if !l.LoadOrStore(chunk) {
+				chunks = append(chunks, chunk)
+			}
 		}
-	}
+	*/
+	chunks := Splitter(s, 0)
 	return chunks
 }
 

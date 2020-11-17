@@ -16,6 +16,8 @@ import (
 	"sync"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/dgraph-io/badger/v2"
 )
 
 var suggEndpoint = "http://suggestqueries.google.com/complete/search?output=toolbar&hl=en-US&q="
@@ -52,11 +54,14 @@ func NewLoader(sw, freq, titles string) *Loader {
 func Load(sw, freq, titles string) error {
 	loader := NewLoader(sw, freq, titles)
 
+	// load the dict from the db
+	loader.dictFromDB()
+	//log.Fatal("END")
 	wg := new(sync.WaitGroup)
 	wg2 := new(sync.WaitGroup)
 	inCH := make(chan *suggestion.Response)
 	outCH := make(chan *suggestion.Response)
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		wg2.Add(1)
 		go loader.remote(inCH, outCH, wg)
@@ -77,6 +82,29 @@ func Load(sw, freq, titles string) error {
 	return nil
 }
 
+func (loader *Loader) dictFromDB() {
+	if err := loader.Datastore.DB.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchSize = 10
+		opts.PrefetchValues = true
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		count := 0
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			k := item.Key()
+			loader.Lang.Dict.Store(string(k), nil)
+			count++
+			if count%100 == 0 {
+				log.Printf("loaded keys to dict: %d\n", count)
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Panicf("couldn't iterate: %v", err)
+	}
+}
+
 func (loader *Loader) remote(inCH chan *suggestion.Response, outCH chan *suggestion.Response, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for sugg := range inCH {
@@ -86,6 +114,7 @@ func (loader *Loader) remote(inCH chan *suggestion.Response, outCH chan *suggest
 		}
 		if !bytes.HasPrefix(data, []byte("<?xml version=\"1.0\"?>")) {
 			log.Printf("Non xml response with query: %s", sugg.Query)
+			log.Printf("url: %s\n%s", suggEndpoint+url.QueryEscape(sugg.Query), data)
 			continue
 		}
 		suggestions, err := requestXML(data)
@@ -95,9 +124,14 @@ func (loader *Loader) remote(inCH chan *suggestion.Response, outCH chan *suggest
 		}
 		if len(suggestions) > 0 {
 			sugg.Suggestions = suggestions
-			loader.Lang.Dict.Store(sugg.Query, nil)
-			outCH <- sugg
+		} else {
+			sugg.Suggestions = []*suggestion.Suggestion{
+				&suggestion.Suggestion{
+					Text: sugg.Query,
+				},
+			}
 		}
+		outCH <- sugg
 	}
 }
 

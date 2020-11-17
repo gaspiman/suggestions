@@ -11,10 +11,10 @@ import (
 
 func (l *Loader) PushSeed(inCH chan *suggestion.Response) {
 	i := 0
-	l.Lang.Seed = map[string]struct{}{
-		"michael jackson": struct{}{},
-	}
 	for k := range l.Lang.Seed {
+		if l.Lang.LoadOrStore(k) {
+			continue
+		}
 		if i%100 == 0 {
 			log.Printf("processed: %v", i)
 		}
@@ -30,7 +30,6 @@ func (l *Loader) ProcessKeywords(inCH chan *suggestion.Response, outCH chan *sug
 	defer batch.Cancel()
 	for sugg := range outCH {
 		gobbed, err := sugg.Encode()
-		fmt.Println(">>> HERE >>>>>", sugg)
 		if err != nil {
 			log.Fatalf("couldn't gob: %v", err)
 		}
@@ -80,8 +79,10 @@ func (l *Loader) IterateDB(inCH chan *suggestion.Response) bool {
 func (l *Loader) PushBackSuggestions(resp *suggestion.Response, inCH chan *suggestion.Response) bool {
 	hasPushed := false
 	chunks := l.Lang.Chunker(resp.Query)
-	fmt.Println("CHUNKS RECEIVED", chunks)
 	for _, chunk := range chunks {
+		if l.Lang.LoadOrStore(chunk) {
+			continue
+		}
 		log.Printf("pushing query: %s\n", chunk)
 		hasPushed = true
 		inCH <- &suggestion.Response{
@@ -91,6 +92,9 @@ func (l *Loader) PushBackSuggestions(resp *suggestion.Response, inCH chan *sugge
 	for _, sugg := range resp.Suggestions {
 		chunks := l.Lang.Chunker(sugg.Text)
 		for _, chunk := range chunks {
+			if l.Lang.LoadOrStore(chunk) {
+				continue
+			}
 			log.Printf("pushing query 2: %s\n", chunk)
 			hasPushed = true
 			inCH <- &suggestion.Response{
